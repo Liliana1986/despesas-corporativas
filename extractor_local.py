@@ -230,18 +230,28 @@ def _check_document_valid(text: str) -> str:
     Sim          = Nome Gotelecom SA encontrado (se NIF não legível)
     Não Validado = nenhuma referência encontrada
     """
-    # Normaliza confusões comuns do OCR: S→5, O→0, I→1, l→1, B→8
-    def _ocr_norm(t):
-        return (re.sub(r"[\s\-\.]", "", t)
-                .replace("S", "5").replace("s", "5")
-                .replace("O", "0").replace("o", "0")
-                .replace("I", "1").replace("l", "1")
-                .replace("B", "8"))
+    # Verifica texto limpo (remove espaços/pontos/traços)
+    text_clean = re.sub(r"[\s\-\.]", "", text)
+    for nif in CLIENT_NIFS:
+        if nif in text_clean:
+            return "Sim"
 
-    text_norm = _ocr_norm(text)
+    # Normaliza confusões comuns do OCR: S→5, O→0, I→1, l→1
+    text_norm = (text_clean
+                 .replace("S", "5").replace("s", "5")
+                 .replace("O", "0").replace("o", "0")
+                 .replace("I", "1").replace("l", "1"))
     for nif in CLIENT_NIFS:
         if nif in text_norm:
             return "Sim"
+
+    # Pesquisa fuzzy: aceita 1 dígito errado em 9 (tolerância OCR)
+    all_nifs = re.findall(r"[0-9]{9}", text_clean + text_norm)
+    for found in all_nifs:
+        for client_nif in CLIENT_NIFS:
+            diffs = sum(a != b for a, b in zip(found, client_nif))
+            if diffs <= 1:
+                return "Sim"
 
     # Critério secundário — nome da empresa
     for name in CLIENT_NAMES:
