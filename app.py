@@ -228,35 +228,33 @@ st.subheader("📥 Relatório Final")
 faturas_para_usar = st.session_state.get(
     "faturas_editadas", st.session_state.get("faturas"))
 
-col1, col2 = st.columns(2)
+if faturas_para_usar is None:
+    st.info("Processa as faturas primeiro para gerar o relatório.")
+else:
+    col1, col2 = st.columns(2)
 
-with col1:
-    if faturas_para_usar is None:
-        st.info("Processa as faturas primeiro.")
-    elif "extrato" in st.session_state:
-        if st.button("🔄 Reconciliar e Gerar Relatório", type="primary",
-                     use_container_width=True):
-            with st.spinner("A reconciliar..."):
-                reconciliacao = reconcile(
-                    faturas_para_usar,
-                    st.session_state["extrato"],
-                    tolerancia=tolerancia,
-                )
-                st.session_state["reconciliacao"] = reconciliacao
-                c = reconciliacao["conciliadas"]
-                s = reconciliacao["sem_documento"]
-                e = reconciliacao["sem_extrato"]
-                ca, cb, cc = st.columns(3)
-                ca.metric("✅ Conciliadas", len(c))
-                cb.metric("⚠️ Sem documento", len(s))
-                cc.metric("❌ Sem extrato", len(e))
-    else:
-        if st.button("📊 Exportar só despesas", type="secondary",
-                     use_container_width=True):
-            st.session_state["reconciliacao"] = None
+    with col1:
+        if "extrato" in st.session_state:
+            if st.button("🔄 Reconciliar com Extrato", type="primary",
+                         use_container_width=True):
+                with st.spinner("A reconciliar..."):
+                    reconciliacao = reconcile(
+                        faturas_para_usar,
+                        st.session_state["extrato"],
+                        tolerancia=tolerancia,
+                    )
+                    st.session_state["reconciliacao"] = reconciliacao
+                    c = reconciliacao["conciliadas"]
+                    s = reconciliacao["sem_documento"]
+                    e = reconciliacao["sem_extrato"]
+                    ca, cb, cc = st.columns(3)
+                    ca.metric("✅ Conciliadas", len(c))
+                    cb.metric("⚠️ Sem documento", len(s))
+                    cc.metric("❌ Sem extrato", len(e))
+        else:
+            st.info("Carrega o extrato do cartão para fazer a reconciliação.")
 
-with col2:
-    if faturas_para_usar is not None:
+    with col2:
         excel_data = generate_report(
             faturas_para_usar,
             st.session_state.get("reconciliacao"),
