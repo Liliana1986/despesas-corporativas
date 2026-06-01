@@ -59,8 +59,9 @@ except ImportError:
 
 
 # ── Constantes do cliente ──────────────────────────────────────────────────────
-CLIENT_NIF   = "516114905"
-CLIENT_NAMES = {"gotelecom", "gotelecom sa", "gotelecom s.a", "gotelecom, sa"}
+CLIENT_NIF    = "516114905"   # NIF principal Gotelecom SA
+CLIENT_NIFS   = {"516114905", "507413865"}  # ambos os NIFs conhecidos
+CLIENT_NAMES  = {"gotelecom", "gotelecom sa", "gotelecom s.a", "gotelecom, sa"}
 
 
 # ── Regex ──────────────────────────────────────────────────────────────────────
@@ -224,19 +225,29 @@ def extract_text_from_image(image_bytes: bytes) -> str:
 def _check_document_valid(text: str) -> str:
     """
     PASSO 1 — Verifica se o documento pertence à Gotelecom SA.
-    Sim       = NIF 516114905 ou nome Gotelecom SA encontrado
-    Não       = documento de outro cliente
+    Prioridade: NIF 516114905 (critério principal)
+    Sim          = NIF 516114905 encontrado em qualquer parte do documento
+    Sim          = Nome Gotelecom SA encontrado (se NIF não legível)
     Não Validado = nenhuma referência encontrada
     """
-    if CLIENT_NIF in text:
-        return "Sim"
+    # Normaliza confusões comuns do OCR: S→5, O→0, I→1, l→1, B→8
+    def _ocr_norm(t):
+        return (re.sub(r"[\s\-\.]", "", t)
+                .replace("S", "5").replace("s", "5")
+                .replace("O", "0").replace("o", "0")
+                .replace("I", "1").replace("l", "1")
+                .replace("B", "8"))
+
+    text_norm = _ocr_norm(text)
+    for nif in CLIENT_NIFS:
+        if nif in text_norm:
+            return "Sim"
+
+    # Critério secundário — nome da empresa
     for name in CLIENT_NAMES:
         if name in text.lower():
             return "Sim"
-    # Procura NIF sem contexto (pode ser o cliente noutras posições)
-    nifs = RE_NIF_BARE.findall(text)
-    if CLIENT_NIF in nifs:
-        return "Sim"
+
     return "Não Validado"
 
 
@@ -247,11 +258,10 @@ def _extract_supplier_nif(text: str) -> str:
     # Com prefixo NIF/NIPC
     for m in RE_NIF_LABELED.finditer(text):
         nif = m.group(1)
-        if nif != CLIENT_NIF:
+        if nif not in CLIENT_NIFS:
             return nif
-    # Sem prefixo — todos os NIFs válidos
     for nif in RE_NIF_BARE.findall(text):
-        if nif != CLIENT_NIF:
+        if nif not in CLIENT_NIFS:
             return nif
     return ""
 
