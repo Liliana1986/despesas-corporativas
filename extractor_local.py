@@ -40,13 +40,19 @@ try:
         r"C:\poppler\poppler-26.02.0\Library\bin",
         r"C:\poppler\Library\bin",
         r"C:\Program Files\poppler\Library\bin",
+        "/usr/bin",           # Linux (Streamlit Cloud)
+        "/usr/local/bin",
     ]
     POPPLER_PATH = None
     for _p in _poppler_paths:
-        if _os.path.exists(_p):
-            POPPLER_PATH = _p
+        _exe = "pdftoppm.exe" if _os.name == "nt" else "pdftoppm"
+        if _os.path.exists(_os.path.join(_p, _exe)):
+            POPPLER_PATH = _p if _os.name == "nt" else None  # Linux não precisa de path
             break
-    PDF2IMAGE_OK = POPPLER_PATH is not None
+        elif _os.name != "nt" and _os.path.exists(_os.path.join(_p, "pdftoppm")):
+            POPPLER_PATH = None  # Linux usa PATH do sistema
+            break
+    PDF2IMAGE_OK = True if _os.name != "nt" else POPPLER_PATH is not None
 except ImportError:
     PDF2IMAGE_OK = False
     POPPLER_PATH = None
