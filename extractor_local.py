@@ -59,8 +59,8 @@ except ImportError:
 
 
 # ── Constantes do cliente ──────────────────────────────────────────────────────
-CLIENT_NIF    = "516114905"   # NIF principal Gotelecom SA
-CLIENT_NIFS   = {"516114905", "507413865"}  # ambos os NIFs conhecidos
+CLIENT_NIF    = "507413865"   # NIF Gotelecom SA
+CLIENT_NIFS   = {"507413865", "516114905"}  # NIFs conhecidos (principal + alternativo)
 CLIENT_NAMES  = {"gotelecom", "gotelecom sa", "gotelecom s.a", "gotelecom, sa"}
 
 
