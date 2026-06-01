@@ -1,6 +1,6 @@
 """
 Gestão Automática de Despesas Corporativas
-OCR local — sem API keys, sem internet, dados ficam no computador.
+OCR local — sem API keys, dados ficam no computador da empresa.
 """
 
 import re
@@ -33,15 +33,16 @@ st.markdown("""
         color: white;
         margin-bottom: 1.5rem;
     }
-    .status-ok  { background:#d4edda; border-radius:5px; padding:0.4rem 0.8rem; margin:2px 0; }
-    .status-warn{ background:#fff3cd; border-radius:5px; padding:0.4rem 0.8rem; margin:2px 0; }
+    .status-ok   { background:#d4edda; border-radius:5px; padding:0.4rem 0.8rem; margin:2px 0; }
+    .status-warn { background:#fff3cd; border-radius:5px; padding:0.4rem 0.8rem; margin:2px 0; }
+    div[data-testid="stDataFrameResizable"] td { font-size: 13px; }
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown("""
 <div class="main-header">
     <h1>🧾 Gestão de Despesas Corporativas</h1>
-    <p>OCR local · Sem API keys · Dados ficam no computador da empresa</p>
+    <p>OCR local · Sem API keys · Dados ficam na empresa · Gotelecom SA</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -53,21 +54,20 @@ with st.sidebar:
     if tesseract_available():
         st.markdown('<div class="status-ok">✅ Tesseract OCR instalado</div>', unsafe_allow_html=True)
     else:
-        st.markdown('<div class="status-warn">⚠️ Tesseract não instalado<br><small>PDFs digitais funcionam. Para imagens e PDFs digitalizados, instala o Tesseract.</small></div>', unsafe_allow_html=True)
+        st.markdown('<div class="status-warn">⚠️ Tesseract não instalado</div>', unsafe_allow_html=True)
 
     if pdf2image_available():
-        st.markdown('<div class="status-ok">✅ pdf2image disponível</div>', unsafe_allow_html=True)
+        st.markdown('<div class="status-ok">✅ Poppler disponível</div>', unsafe_allow_html=True)
     else:
-        st.markdown('<div class="status-warn">⚠️ pdf2image não disponível<br><small>Instala Poppler para processar PDFs digitalizados.</small></div>', unsafe_allow_html=True)
+        st.markdown('<div class="status-warn">⚠️ Poppler não disponível</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="status-ok">✅ pdfplumber (PDFs digitais)</div>', unsafe_allow_html=True)
 
     st.divider()
     st.subheader("Opções")
     tolerancia = st.number_input(
-        "Tolerância de valor na reconciliação (€)",
+        "Tolerância reconciliação (€)",
         min_value=0.0, max_value=10.0, value=0.10, step=0.05,
-        help="Diferença máxima aceite entre fatura e movimento do extrato.",
     )
 
     st.divider()
@@ -75,8 +75,8 @@ with st.sidebar:
 **Como usar:**
 1. Carrega as faturas (PDF ou imagem)
 2. Clica **Processar Faturas**
-3. Revê e corrige os dados se necessário
-4. Carrega o extrato do cartão (Excel/CSV)
+3. Valida e corrige os dados
+4. Carrega o extrato do cartão (opcional)
 5. Clica **Reconciliar**
 6. Descarrega o relatório Excel
 """)
@@ -96,13 +96,11 @@ with tab1:
             "Arrasta ou seleciona os ficheiros",
             type=["pdf", "jpg", "jpeg", "png", "bmp", "tiff"],
             accept_multiple_files=True,
-            help="PDFs digitais funcionam sempre. Para imagens e PDFs digitalizados é necessário o Tesseract OCR.",
         )
     with col2:
         colaborador_global = st.text_input(
             "Colaborador (opcional)",
-            placeholder="ex: João Silva",
-            help="Preenche se todos os documentos são do mesmo colaborador.",
+            placeholder="ex: Manuel Pombo",
         )
 
     if uploaded_files:
@@ -113,7 +111,8 @@ with tab1:
             progress = st.progress(0, text="A processar documentos...")
 
             for i, file in enumerate(uploaded_files):
-                progress.progress((i + 1) / len(uploaded_files), text=f"A processar: {file.name}")
+                progress.progress((i + 1) / len(uploaded_files),
+                                   text=f"A processar: {file.name}")
                 colaborador = colaborador_global or _guess_colaborador(file.name)
                 result = process_document(
                     file_bytes=file.read(),
@@ -124,55 +123,76 @@ with tab1:
 
             progress.empty()
             st.session_state["faturas"] = pd.DataFrame(resultados)
-            n_erros = sum(1 for r in resultados if r.get("erro"))
-            n_ok = len(resultados) - n_erros
-            if n_erros == 0:
+            n_ok  = sum(1 for r in resultados if not r.get("observacoes"))
+            n_av  = len(resultados) - n_ok
+            if n_av == 0:
                 st.success(f"✅ {n_ok} documento(s) processado(s) com sucesso!")
             else:
-                st.warning(f"✅ {n_ok} processado(s) · ⚠️ {n_erros} com aviso (ver coluna Erro)")
+                st.warning(f"✅ {n_ok} processado(s) · ⚠️ {n_av} com aviso")
 
 
-# Mostra tabela editável com resultados
+# ── Tabela editável ────────────────────────────────────────────────────────────
 if "faturas" in st.session_state:
-    df = st.session_state["faturas"]
+    df = st.session_state["faturas"].copy()
     st.divider()
     st.subheader("📊 Despesas Extraídas")
-    st.caption("Podes corrigir os valores diretamente na tabela antes de exportar.")
 
+    # Métricas
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total documentos", len(df))
-    col2.metric("Com aviso", df["erro"].notna().sum() if "erro" in df.columns else 0)
+    col2.metric("Documentos válidos",
+                (df["documento_valido"] == "Sim").sum() if "documento_valido" in df.columns else 0)
     total_val = pd.to_numeric(df.get("valor_total", pd.Series(dtype=float)), errors="coerce").sum()
     col3.metric("Valor total", f"{total_val:,.2f} €")
-    col4.metric("Sem valor", (df["valor_total"] == "").sum() if "valor_total" in df.columns else 0)
+    col4.metric("Não validados",
+                (df["documento_valido"] == "Não Validado").sum() if "documento_valido" in df.columns else 0)
 
-    edit_cols = [c for c in [
-        "colaborador", "ficheiro", "fornecedor", "nif_fornecedor",
-        "data", "numero_fatura", "valor_sem_iva",
-        "iva_taxa", "iva_valor", "valor_total", "erro"
-    ] if c in df.columns]
+    st.caption("Podes corrigir e validar directamente na tabela. Clica numa célula para editar.")
 
-    edited_df = st.data_editor(
-        df[edit_cols].rename(columns={
-            "colaborador": "Colaborador",
-            "ficheiro": "Ficheiro",
-            "fornecedor": "Fornecedor",
-            "nif_fornecedor": "NIF Fornecedor",
-            "data": "Data",
-            "numero_fatura": "Nº Documento",
-            "valor_sem_iva": "Valor s/ IVA (€)",
-            "iva_taxa": "Taxa IVA",
-            "iva_valor": "Valor IVA (€)",
-            "valor_total": "Valor Total (€)",
-            "erro": "Aviso",
-        }),
+    # Colunas a mostrar na ordem pedida
+    col_order = [
+        "documento", "colaborador", "documento_valido", "fornecedor",
+        "nif_fornecedor", "numero_documento", "data_documento",
+        "iva", "valor_total", "observacoes"
+    ]
+    col_labels = {
+        "documento":        "Documento",
+        "colaborador":      "Colaborador",
+        "documento_valido": "Doc. Válido",
+        "fornecedor":       "Fornecedor",
+        "nif_fornecedor":   "NIF Fornecedor",
+        "numero_documento": "Número Documento",
+        "data_documento":   "Data Documento",
+        "iva":              "IVA",
+        "valor_total":      "Valor Total (€)",
+        "observacoes":      "Observações",
+    }
+
+    show_cols = [c for c in col_order if c in df.columns]
+
+    edited = st.data_editor(
+        df[show_cols].rename(columns=col_labels),
         use_container_width=True,
-        height=400,
+        height=420,
         num_rows="dynamic",
+        column_config={
+            "Doc. Válido": st.column_config.SelectboxColumn(
+                "Doc. Válido",
+                options=["Sim", "Não", "Não Validado"],
+                required=True,
+            ),
+            "Valor Total (€)": st.column_config.NumberColumn(
+                "Valor Total (€)",
+                format="%.2f €",
+                min_value=0,
+            ),
+        },
     )
-    # Guarda edições
-    edited_df.columns = edit_cols
-    st.session_state["faturas_editadas"] = edited_df
+
+    # Guarda edições (mapeia de volta para nomes originais)
+    inv_labels = {v: k for k, v in col_labels.items()}
+    edited.columns = [inv_labels.get(c, c) for c in edited.columns]
+    st.session_state["faturas_editadas"] = edited
 
 
 # ── Tab 2: Extrato ─────────────────────────────────────────────────────────────
@@ -190,57 +210,32 @@ with tab2:
         if st.button("📥 Carregar Extrato", type="secondary", use_container_width=True):
             with st.spinner("A ler o extrato..."):
                 try:
-                    extrato_df = load_statement_from_excel(extrato_file.read(), extrato_file.name)
+                    extrato_df = load_statement_from_excel(
+                        extrato_file.read(), extrato_file.name)
                     st.session_state["extrato"] = extrato_df
                     st.success(f"✅ {len(extrato_df)} movimento(s) carregados!")
                 except Exception as e:
                     st.error(f"Erro ao ler extrato: {e}")
-                    st.info("Certifica-te que o ficheiro tem colunas de Data, Descrição e Valor.")
 
     if "extrato" in st.session_state:
         st.dataframe(st.session_state["extrato"], use_container_width=True, height=300)
 
-        # Mapeamento de colunas (caso o Excel tenha nomes diferentes)
-        with st.expander("Ajustar colunas do extrato"):
-            cols_extrato = list(st.session_state["extrato"].columns)
-            st.caption("Se a reconciliação não funcionar, confirma aqui qual coluna é o quê.")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                col_data = st.selectbox("Coluna de Data", cols_extrato,
-                    index=next((i for i, c in enumerate(cols_extrato) if "data" in c.lower() or "date" in c.lower()), 0))
-            with c2:
-                col_desc = st.selectbox("Coluna de Descrição", cols_extrato,
-                    index=next((i for i, c in enumerate(cols_extrato) if "desc" in c.lower() or "mov" in c.lower()), min(1, len(cols_extrato)-1)))
-            with c3:
-                col_valor = st.selectbox("Coluna de Valor", cols_extrato,
-                    index=next((i for i, c in enumerate(cols_extrato) if "valor" in c.lower() or "amount" in c.lower() or "mont" in c.lower()), min(2, len(cols_extrato)-1)))
 
-            if st.button("Aplicar mapeamento"):
-                ext = st.session_state["extrato"].copy()
-                ext = ext.rename(columns={col_data: "data", col_desc: "descricao", col_valor: "valor"})
-                ext["data"] = pd.to_datetime(ext["data"], dayfirst=True, errors="coerce")
-                ext["valor"] = pd.to_numeric(
-                    ext["valor"].astype(str).str.replace(r"[^\d,.-]", "", regex=True).str.replace(",", "."),
-                    errors="coerce"
-                ).abs()
-                st.session_state["extrato"] = ext[["data", "descricao", "valor"]]
-                st.success("Mapeamento aplicado!")
-                st.rerun()
-
-
-# ── Relatório e Reconciliação ──────────────────────────────────────────────────
+# ── Relatório Final ────────────────────────────────────────────────────────────
 st.divider()
 st.subheader("📥 Relatório Final")
 
-faturas_para_usar = st.session_state.get("faturas_editadas", st.session_state.get("faturas"))
+faturas_para_usar = st.session_state.get(
+    "faturas_editadas", st.session_state.get("faturas"))
 
 col1, col2 = st.columns(2)
 
 with col1:
     if faturas_para_usar is None:
-        st.info("Processa as faturas primeiro para gerar o relatório.")
+        st.info("Processa as faturas primeiro.")
     elif "extrato" in st.session_state:
-        if st.button("🔄 Reconciliar e Gerar Relatório", type="primary", use_container_width=True):
+        if st.button("🔄 Reconciliar e Gerar Relatório", type="primary",
+                     use_container_width=True):
             with st.spinner("A reconciliar..."):
                 reconciliacao = reconcile(
                     faturas_para_usar,
@@ -248,17 +243,16 @@ with col1:
                     tolerancia=tolerancia,
                 )
                 st.session_state["reconciliacao"] = reconciliacao
-
                 c = reconciliacao["conciliadas"]
                 s = reconciliacao["sem_documento"]
                 e = reconciliacao["sem_extrato"]
-
-                col_a, col_b, col_c = st.columns(3)
-                col_a.metric("✅ Conciliadas", len(c))
-                col_b.metric("⚠️ Sem documento", len(s))
-                col_c.metric("❌ Sem extrato", len(e))
+                ca, cb, cc = st.columns(3)
+                ca.metric("✅ Conciliadas", len(c))
+                cb.metric("⚠️ Sem documento", len(s))
+                cc.metric("❌ Sem extrato", len(e))
     else:
-        if st.button("📊 Exportar só despesas", type="secondary", use_container_width=True):
+        if st.button("📊 Exportar só despesas", type="secondary",
+                     use_container_width=True):
             st.session_state["reconciliacao"] = None
 
 with col2:
@@ -276,34 +270,28 @@ with col2:
             type="primary",
         )
 
-
 # ── Detalhes reconciliação ─────────────────────────────────────────────────────
 if st.session_state.get("reconciliacao"):
     rec = st.session_state["reconciliacao"]
     st.divider()
     with st.expander("Ver detalhes da reconciliação", expanded=True):
-        tab_a, tab_b, tab_c = st.tabs(["✅ Conciliadas", "⚠️ Sem Documento", "❌ Sem Extrato"])
-        with tab_a:
-            if not rec["conciliadas"].empty:
-                st.dataframe(rec["conciliadas"], use_container_width=True)
-            else:
-                st.info("Nenhuma despesa conciliada.")
-        with tab_b:
+        ta, tb, tc = st.tabs(["✅ Conciliadas", "⚠️ Sem Documento", "❌ Sem Extrato"])
+        with ta:
+            st.dataframe(rec["conciliadas"], use_container_width=True) \
+                if not rec["conciliadas"].empty else st.info("Nenhuma.")
+        with tb:
             if not rec["sem_documento"].empty:
                 st.dataframe(rec["sem_documento"], use_container_width=True)
-                # Botão para exportar lista de falta por colaborador
                 st.download_button(
-                    "📧 Exportar lista para enviar aos colaboradores",
-                    data=rec["sem_documento"].to_csv(index=False, sep=";").encode("utf-8-sig"),
+                    "📧 Exportar lista para colaboradores",
+                    data=rec["sem_documento"].to_csv(
+                        index=False, sep=";").encode("utf-8-sig"),
                     file_name="movimentos_sem_documento.csv",
                     mime="text/csv",
                 )
             else:
-                st.success("Todos os movimentos têm documento associado.")
-        with tab_c:
-            if not rec["sem_extrato"].empty:
-                st.dataframe(rec["sem_extrato"], use_container_width=True)
-            else:
-                st.success("Todos os documentos têm correspondência no extrato.")
-
-
+                st.success("Todos os movimentos têm documento.")
+        with tc:
+            st.dataframe(rec["sem_extrato"], use_container_width=True) \
+                if not rec["sem_extrato"].empty \
+                else st.success("Todos os documentos têm correspondência.")
