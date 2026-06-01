@@ -58,6 +58,10 @@ except ImportError:
     POPPLER_PATH = None
 
 
+# ── NIFs/nomes a ignorar (são o cliente, não o fornecedor) ────────────────────
+CLIENT_NIFS  = {"507413865", "516114905"}
+CLIENT_NAMES = {"gotelecom", "gotelecom sa", "gotelecom s.a"}
+
 # ── Padrões regex para faturas portuguesas ─────────────────────────────────────
 
 RE_NIF = re.compile(
@@ -78,14 +82,19 @@ RE_TOTAL_STRICT = re.compile(
 RE_TOTAL = re.compile(
     r"(?:total\s*a\s*pagar|total\s*com\s*iva|valor\s*total|montante\s*total|"
     r"total\s*fatura|total\s*factura|total\s*due|total\s*incl|"
-    r"valor\s*entregue|montante\s*pago|valor\s*pago)"
-    r"[:\s€]*([0-9]+[.,][0-9]{2})",
+    r"valor\s*entregue|montante\s*pago|valor\s*pago|"
+    r"total\s*EUR|valor\s*EUR)"
+    r"[:\s€EUR]*([0-9]+[.,][0-9]{2})",
     re.IGNORECASE,
 )
-# Padrão para "TOTAL A PAGAR\n109,99" (valor na linha seguinte)
 RE_TOTAL_NEXTLINE = re.compile(
-    r"(?:total\s*a\s*pagar|total\s*fatura|total\s*factura)\s*\n\s*([0-9]+[.,][0-9]{2})",
+    r"(?:total\s*a\s*pagar|total\s*fatura|total\s*factura|valor\s*total)\s*\n\s*([0-9]+[.,][0-9]{2})",
     re.IGNORECASE,
+)
+# Padrão específico para "699,00 EUR" no final da fatura
+RE_TOTAL_EUR = re.compile(
+    r"([0-9]+[.,][0-9]{2})\s*EUR\s*$",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 RE_IVA_VALUE = re.compile(
@@ -265,7 +274,12 @@ def _extract_total(text: str) -> float:
     if r:
         return r
 
-    # 4. Fallback: maior valor monetário razoável
+    # 4. Padrão "699,00 EUR" no fim de linha
+    r = best(RE_TOTAL_EUR.findall(text))
+    if r:
+        return r
+
+    # 5. Fallback: maior valor monetário razoável
     amounts = [_parse_money(m) for m in RE_AMOUNT.findall(text)]
     amounts = [a for a in amounts if 0 < a < 50000]
     return max(amounts) if amounts else 0.0
@@ -284,15 +298,15 @@ def _extract_iva(text: str) -> dict:
 
 
 def _extract_nif(text: str) -> str:
-    """Extrai NIF/NIPC do fornecedor."""
+    """Extrai NIF/NIPC do fornecedor (ignora NIFs do cliente)."""
     # Tenta com prefixo NIF/NIPC
-    m = RE_NIF.search(text)
-    if m:
-        return m.group(1)
-    # Tenta NIFs sem prefixo (cuidado com falsos positivos)
+    for m in RE_NIF.finditer(text):
+        nif = m.group(1)
+        if nif not in CLIENT_NIFS:
+            return nif
+    # Tenta NIFs sem prefixo
     nifs = RE_NIF_BARE.findall(text)
-    # Filtra NIFs válidos PT (começa por 1-9, 9 dígitos)
-    valid = [n for n in nifs if n[0] in "123456789" and len(n) == 9]
+    valid = [n for n in nifs if n[0] in "123456789" and len(n) == 9 and n not in CLIENT_NIFS]
     return valid[0] if valid else ""
 
 
@@ -375,13 +389,13 @@ def process_document(file_bytes: bytes, filename: str, colaborador: str = "") ->
         "ficheiro": filename,
         "colaborador": colaborador,
         "fornecedor": "",
-        "data": "",
-        "descricao": "",
         "nif_fornecedor": "",
-        "valor_total": "",
+        "data": "",
+        "numero_fatura": "",
+        "valor_sem_iva": "",
         "iva_taxa": "",
         "iva_valor": "",
-        "numero_fatura": "",
+        "valor_total": "",
         "erro": None,
     }
 
@@ -420,9 +434,8 @@ def process_document(file_bytes: bytes, filename: str, colaborador: str = "") ->
 
         # Extrai campos
         result["fornecedor"] = _extract_supplier(text)
-        result["data"] = _extract_date(text)
-        result["descricao"] = _extract_description(text)
         result["nif_fornecedor"] = _extract_nif(text)
+        result["data"] = _extract_date(text)
         result["numero_fatura"] = _extract_invoice_number(text)
 
         total = _extract_total(text)
@@ -431,6 +444,13 @@ def process_document(file_bytes: bytes, filename: str, colaborador: str = "") ->
         iva = _extract_iva(text)
         result["iva_taxa"] = iva["taxa"]
         result["iva_valor"] = iva["valor"] if iva["valor"] else ""
+
+        # Valor sem IVA
+        if total > 0 and iva["valor"]:
+            try:
+                result["valor_sem_iva"] = round(total - float(iva["valor"]), 2)
+            except Exception:
+                result["valor_sem_iva"] = ""
 
     except Exception as e:
         result["erro"] = str(e)

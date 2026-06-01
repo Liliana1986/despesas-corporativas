@@ -147,9 +147,9 @@ if "faturas" in st.session_state:
     col4.metric("Sem valor", (df["valor_total"] == "").sum() if "valor_total" in df.columns else 0)
 
     edit_cols = [c for c in [
-        "colaborador", "ficheiro", "fornecedor", "data",
-        "descricao", "nif_fornecedor", "valor_total",
-        "iva_taxa", "iva_valor", "numero_fatura", "erro"
+        "colaborador", "ficheiro", "fornecedor", "nif_fornecedor",
+        "data", "numero_fatura", "valor_sem_iva",
+        "iva_taxa", "iva_valor", "valor_total", "erro"
     ] if c in df.columns]
 
     edited_df = st.data_editor(
@@ -157,13 +157,13 @@ if "faturas" in st.session_state:
             "colaborador": "Colaborador",
             "ficheiro": "Ficheiro",
             "fornecedor": "Fornecedor",
-            "data": "Data",
-            "descricao": "Descrição",
             "nif_fornecedor": "NIF Fornecedor",
-            "valor_total": "Valor Total (€)",
+            "data": "Data",
+            "numero_fatura": "Nº Documento",
+            "valor_sem_iva": "Valor s/ IVA (€)",
             "iva_taxa": "Taxa IVA",
             "iva_valor": "Valor IVA (€)",
-            "numero_fatura": "Nº Fatura",
+            "valor_total": "Valor Total (€)",
             "erro": "Aviso",
         }),
         use_container_width=True,
